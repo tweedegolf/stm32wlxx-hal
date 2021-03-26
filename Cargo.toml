@@ -18,6 +18,7 @@ members = ["testsuite"]
 cortex-m = "0.7.1"
 cortex-m-rt = "0.6.13"
 stm32wl = "0.13.0"
+nb = "0.1.1"
 
 [dependencies.embedded-hal]
 version = "0.2.4"

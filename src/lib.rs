@@ -38,3 +38,7 @@ pub mod gpio;
 pub mod prelude;
 #[cfg(feature = "device-selected")]
 pub mod rcc;
+#[cfg(feature = "device-selected")]
+pub mod spi;
+#[cfg(feature = "device-selected")]
+pub mod time;

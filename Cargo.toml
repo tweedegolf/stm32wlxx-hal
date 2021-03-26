@@ -18,7 +18,10 @@ members = ["testsuite"]
 cortex-m = "0.7.1"
 cortex-m-rt = "0.6.13"
 stm32wl = "0.13.0"
-embedded-hal = "0.2.4"
+
+[dependencies.embedded-hal]
+version = "0.2.4"
+features = ["unproven"]
 
 [dev-dependencies]
 defmt = "0.2.0"
@@ -36,6 +39,7 @@ stm32wle5 = ["stm32wl/stm32wle5", "device-selected"]
 # set logging levels here
 default = [
   "defmt-default",
+  "stm32wle5"
   # "dependency-a/defmt-trace",
 ]
 

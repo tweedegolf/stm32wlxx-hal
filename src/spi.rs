@@ -58,6 +58,7 @@ macro_rules! pins {
 }
 
 /// SPI peripheral operating in full duplex master mode
+/// This code has not been tested, please use with care
 pub struct Spi<SPI, PINS> {
     spi: SPI,
     pins: PINS,

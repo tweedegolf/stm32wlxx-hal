@@ -30,5 +30,11 @@ pub use crate::pac as device;
 #[doc(hidden)]
 pub use crate::pac as stm32;
 
+// #[cfg(feature = "device-selected")]
+// pub mod flash;
 #[cfg(feature = "device-selected")]
 pub mod gpio;
+#[cfg(feature = "device-selected")]
+pub mod prelude;
+#[cfg(feature = "device-selected")]
+pub mod rcc;

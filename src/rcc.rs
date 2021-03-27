@@ -13,6 +13,8 @@ impl RccExt for RCC {
     fn constrain(self) -> Rcc {
         Rcc {
             ahb2: AHB2 { _0: () },
+            apb1_1: APB1_1{ _0: () },
+            apb2: APB2 { _0: () },
             apb3: APB3 { _0: () },
         }
     }
@@ -20,8 +22,13 @@ impl RccExt for RCC {
 
 /// Constrained RCC peripheral
 pub struct Rcc {
-    /// AMBA High-performance Bus (AHB2) registers
+    /// AMBA High-performance Bus 2 (AHB2) registers
     pub ahb2: AHB2,
+    /// AMBA Advanced Peripheral Bus 1 (APB1) register block 1
+    pub apb1_1: APB1_1,
+    /// AMBA Advanced Peripheral Bus 2 (APB2) registers
+    pub apb2: APB2,
+    /// AMBA Advanced Peripheral Bus 3 (APB3) registers
     pub apb3: APB3,
 }
 
@@ -41,6 +48,42 @@ impl AHB2 {
         unsafe { &(*RCC::ptr()).ahb2rstr }
     }
 }
+
+/// Advanced Peripheral Bus 1 (APB1) register block 1
+pub struct APB1_1 {
+    _0: (),
+}
+
+impl APB1_1 {
+    pub(crate) fn enr(&mut self) -> &rcc::APB1ENR1 {
+        // NOTE(unsafe) this proxy grants exclusive access to this register
+        unsafe { &(*RCC::ptr()).apb1enr1 }
+    }
+
+    pub(crate) fn rstr(&mut self) -> &rcc::APB1RSTR1 {
+        // NOTE(unsafe) this proxy grants exclusive access to this register
+        unsafe { &(*RCC::ptr()).apb1rstr1 }
+    }
+}
+
+/// Advanced Peripheral Bus 2 (APB2) registers
+pub struct APB2 {
+    _0: (),
+}
+
+impl APB2 {
+    pub(crate) fn enr(&mut self) -> &rcc::APB2ENR {
+        // NOTE(unsafe) this proxy grants exclusive access to this register
+        unsafe { &(*RCC::ptr()).apb2enr }
+    }
+
+    pub(crate) fn rstr(&mut self) -> &rcc::APB2RSTR {
+        // NOTE(unsafe) this proxy grants exclusive access to this register
+        unsafe { &(*RCC::ptr()).apb2rstr }
+    }
+}
+
+
 
 /// Advanced Peripheral Bus 3 (APB3) registers
 pub struct APB3 {

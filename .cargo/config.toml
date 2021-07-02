@@ -15,3 +15,4 @@ target = "thumbv7em-none-eabi"   # Cortex-M4 and Cortex-M7 (no FPU)
 [alias]
 rb = "run --bin"
 rrb = "run --release --bin"
+wle5 = "run --release --features=stm32wle5,rt --example"

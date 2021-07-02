@@ -2,7 +2,10 @@
 
 use core::ptr;
 
-use crate::{hal::spi::{FullDuplex, Mode, Phase, Polarity}, rcc::{APB1_1, APB2}};
+use crate::{
+    hal::spi::{FullDuplex, Mode, Phase, Polarity},
+    rcc::{APB1_1, APB2},
+};
 
 use crate::gpio::*;
 use crate::rcc::{Clocks, APB3};
@@ -34,6 +37,9 @@ pub trait MosiPin<SPI>: private::Sealed {}
 /// NSS Pin. This trait is sealed and cannot be implemented.
 pub trait NssPin<SPI>: private::Sealed {}
 
+impl private::Sealed for () {}
+impl<SPI> NssPin<SPI> for () {}
+
 macro_rules! pins {
     ($spi:ident,
      $af:ident,
@@ -55,8 +61,8 @@ macro_rules! pins {
             impl MosiPin<$spi> for $mosi<Alternate<$af, Input<Floating>>> {}
         )*
         $(
-            impl private::Sealed for $nss<Alternate<$af, Input<Floating>>> {}
-            impl NssPin<$spi> for $nss<Alternate<$af, Input<Floating>>> {}
+            impl private::Sealed for $nss<Alternate<$af, Output<PushPull>>> {}
+            impl NssPin<$spi> for $nss<Alternate<$af, Output<PushPull>>> {}
         )*
     }
 }
@@ -136,6 +142,13 @@ macro_rules! hal {
                             .bidimode()
                             .clear_bit()
                     });
+
+                    // spi.cr2.write(|w| 
+                        // w.ssoe()
+                        // .bit(pins.3.is_some())
+                        // .nssp()
+                        // .bit(pins.3.is_some())
+                    // );
 
                     Spi { spi, pins }
                 }
@@ -223,7 +236,7 @@ macro_rules! hal {
 // SPI1
 use crate::pac::SPI1;
 
-hal!{
+hal! {
     SPI1: (spi1, APB2, spi1en, spi1rst, pclk1),
 }
 
@@ -237,7 +250,7 @@ pins!(SPI1, AF5,
 // SPI2S2
 use crate::pac::SPI2 as SPI2S2;
 
-hal! {    
+hal! {
     SPI2S2: (spi2s2, APB1_1, spi2s2en, spi2s2rst, pclk1),
 }
 
@@ -258,7 +271,7 @@ pins!(SPI2S2, AF3,
 // SUBGHZSPI
 use crate::pac::SPI3 as SUBGHZSPI;
 
-hal! {    
+hal! {
     SUBGHZSPI: (subghzspi, APB3, subghzspien, subghzspirst, pclk1),
 }
 

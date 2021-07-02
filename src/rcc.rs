@@ -1,7 +1,10 @@
 //! Reset and Clock Control
 
+use crate::flash::ACR;
+
 use crate::stm32::{rcc, RCC};
 use crate::time::Hertz;
+use cast::u32;
 
 /// Extension trait that constrains the `RCC` peripheral
 pub trait RccExt {
@@ -13,9 +16,10 @@ impl RccExt for RCC {
     fn constrain(self) -> Rcc {
         Rcc {
             ahb2: AHB2 { _0: () },
-            apb1_1: APB1_1{ _0: () },
+            apb1_1: APB1_1 { _0: () },
             apb2: APB2 { _0: () },
             apb3: APB3 { _0: () },
+            cfgr: CFGR {},
         }
     }
 }
@@ -30,6 +34,8 @@ pub struct Rcc {
     pub apb2: APB2,
     /// AMBA Advanced Peripheral Bus 3 (APB3) registers
     pub apb3: APB3,
+    /// Clock configuration register
+    pub cfgr: CFGR,
 }
 
 /// AMBA High-performance Bus 2 (AHB2) registers
@@ -83,8 +89,6 @@ impl APB2 {
     }
 }
 
-
-
 /// Advanced Peripheral Bus 3 (APB3) registers
 pub struct APB3 {
     _0: (),
@@ -99,6 +103,92 @@ impl APB3 {
     pub(crate) fn rstr(&mut self) -> &rcc::APB3RSTR {
         // NOTE(unsafe) this proxy grants exclusive access to this register
         unsafe { &(*RCC::ptr()).apb3rstr }
+    }
+}
+
+const HSI: u32 = 16_000_000; // Hz
+
+/// Clock configuration
+pub struct CFGR {}
+
+impl CFGR {
+    pub fn freeze(&self, acr: &mut ACR) -> Clocks {
+        // TODO this works, but does not allow for any
+        // configurations in cfgr. Needs rewrite before
+        // merging
+
+        let rcc = unsafe { &*RCC::ptr() };
+
+        let lsi_used = false;
+        let (clock_speed, pll_source) = (HSI, PllSource::HSI16);
+        if pll_source == PllSource::HSI16 {
+            rcc.cr.write(|w| w.hsion().set_bit());
+            while rcc.cr.read().hsirdy().bit_is_clear() {}
+        }
+
+        let sysclk = HSI;
+        assert!(sysclk <= 80_000_000);
+
+        let (hpre_bits, hpre_div) = (0b0000, 1);
+        let hclk = sysclk / hpre_div;
+        assert!(hclk <= sysclk);
+
+        let (ppre1_bits, ppre1) = (0b000, 1u8);
+        let pclk1 = hclk / u32(ppre1);
+        assert!(pclk1 <= sysclk);
+
+        let (ppre2_bits, ppre2) = (0b000, 1u8);
+        let pclk2 = hclk / u32(ppre2);
+
+        // adjust flash wait states
+        unsafe {
+            acr.acr().write(|w| {
+                w.latency().bits(if hclk <= 16_000_000 {
+                    0b000
+                } else if hclk <= 32_000_000 {
+                    0b001
+                } else if hclk <= 48_000_000 {
+                    0b010
+                } else if hclk <= 64_000_000 {
+                    0b011
+                } else {
+                    0b100
+                })
+            })
+        }
+
+        let sysclk_src_bits;
+        {
+            sysclk_src_bits = 0b01;
+
+            rcc.cr.write(|w| w.hsion().set_bit());
+            while rcc.cr.read().hsirdy().bit_is_clear() {}
+
+            // SW: HSI selected as system clock
+            rcc.cfgr.write(|w| unsafe {
+                w.ppre2()
+                    .bits(ppre2_bits)
+                    .ppre1()
+                    .bits(ppre1_bits)
+                    .hpre()
+                    .bits(hpre_bits)
+                    .sw()
+                    .bits(sysclk_src_bits)
+            });
+        }
+        while rcc.cfgr.read().sws().bits() != sysclk_src_bits {}
+
+        // MSI always starts on reset
+        {
+            rcc.cr
+                .modify(|_, w| w.msion().clear_bit().msipllen().clear_bit())
+        }
+
+        Clocks {
+            pclk1: Hertz(pclk1),
+            pclk2: Hertz(pclk2),
+            sysclk: Hertz(sysclk),
+        }
     }
 }
 
@@ -175,40 +265,12 @@ impl PllSource {
 /// The existence of this value indicates that the clock configuration can no longer be changed
 #[derive(Clone, Copy, Debug)]
 pub struct Clocks {
-    hclk: Hertz,
-    hsi48: bool,
-    msi: Option<MsiFreq>,
-    lsi: bool,
-    lse: bool,
     pclk1: Hertz,
     pclk2: Hertz,
-    ppre1: u8,
-    ppre2: u8,
     sysclk: Hertz,
-    pll_source: Option<PllSource>,
 }
 
 impl Clocks {
-    /// Returns the frequency of the AHB
-    pub fn hclk(&self) -> Hertz {
-        self.hclk
-    }
-
-    /// Returns status of HSI48
-    pub fn hsi48(&self) -> bool {
-        self.hsi48
-    }
-
-    // Returns the status of the MSI
-    pub fn msi(&self) -> Option<MsiFreq> {
-        self.msi
-    }
-
-    /// Returns status of HSI48
-    pub fn lsi(&self) -> bool {
-        self.lsi
-    }
-
     /// Returns the frequency of the APB1
     pub fn pclk1(&self) -> Hertz {
         self.pclk1
@@ -217,17 +279,6 @@ impl Clocks {
     /// Returns the frequency of the APB2
     pub fn pclk2(&self) -> Hertz {
         self.pclk2
-    }
-
-    // TODO remove `allow`
-    #[allow(dead_code)]
-    pub(crate) fn ppre1(&self) -> u8 {
-        self.ppre1
-    }
-    // TODO remove `allow`
-    #[allow(dead_code)]
-    pub(crate) fn ppre2(&self) -> u8 {
-        self.ppre2
     }
 
     /// Returns the system (core) frequency

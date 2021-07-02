@@ -4,9 +4,9 @@
 mod defmt_impls;
 
 use cortex_m::asm::nop;
-use stm32wlxx_hal as hal;
 use hal::pac;
 use hal::prelude::*;
+use stm32wlxx_hal as hal;
 
 use cortex_m_rt::entry;
 

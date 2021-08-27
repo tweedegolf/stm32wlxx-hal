@@ -143,7 +143,7 @@ macro_rules! hal {
                             .clear_bit()
                     });
 
-                    // spi.cr2.write(|w| 
+                    // spi.cr2.write(|w|
                         // w.ssoe()
                         // .bit(pins.3.is_some())
                         // .nssp()

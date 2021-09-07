@@ -1,9 +1,13 @@
 //! Serial Peripheral Interface (SPI) bus
 
 use core::ptr;
-use crate::hal::spi::{FullDuplex, Mode, Phase, Polarity};
 
-use crate::gpio::{Alternate, Floating, Input, PA4, PA5, PA6, PA7, AF13};
+use crate::{
+    hal::spi::{FullDuplex, Mode, Phase, Polarity},
+    rcc::{APB1_1, APB2},
+};
+
+use crate::gpio::*;
 use crate::rcc::{Clocks, APB3};
 use crate::time::Hertz;
 
@@ -30,6 +34,11 @@ pub trait SckPin<SPI>: private::Sealed {}
 pub trait MisoPin<SPI>: private::Sealed {}
 /// MOSI pin. This trait is sealed and cannot be implemented.
 pub trait MosiPin<SPI>: private::Sealed {}
+/// NSS Pin. This trait is sealed and cannot be implemented.
+pub trait NssPin<SPI>: private::Sealed {}
+
+impl private::Sealed for () {}
+impl<SPI> NssPin<SPI> for () {}
 
 macro_rules! pins {
     ($spi:ident,
@@ -37,7 +46,8 @@ macro_rules! pins {
      SCK: [$($sck:ident),*],
      MISO: [$($miso:ident),*],
      MOSI: [$($mosi:ident),*],
-     NSSOUT: [$($nssout:ident),*]) => {
+     NSS: [$($nss:ident),*]$(,)?
+    ) => {
         $(
             impl private::Sealed for $sck<Alternate<$af, Input<Floating>>> {}
             impl SckPin<$spi> for $sck<Alternate<$af, Input<Floating>>> {}
@@ -51,8 +61,8 @@ macro_rules! pins {
             impl MosiPin<$spi> for $mosi<Alternate<$af, Input<Floating>>> {}
         )*
         $(
-            impl private::Sealed for $nssout<Alternate<$af, Input<Floating>>> {}
-            impl MosiPin<$spi> for $nssout<Alternate<$af, Input<Floating>>> {}
+            impl private::Sealed for $nss<Alternate<$af, Output<PushPull>>> {}
+            impl NssPin<$spi> for $nss<Alternate<$af, Output<PushPull>>> {}
         )*
     }
 }
@@ -67,34 +77,35 @@ pub struct Spi<SPI, PINS> {
 macro_rules! hal {
     ($($SPIX:ident: ($spiX:ident, $APBX:ident, $spiXen:ident, $spiXrst:ident, $pclkX:ident),)+) => {
         $(
-            impl<SCK, MISO, MOSI> Spi<$SPIX, (SCK, MISO, MOSI)> {
+            impl<SCK, MISO, MOSI, NSS> Spi<$SPIX, (SCK, MISO, MOSI, Option<NSS>)> {
                 /// Configures the SPI peripheral to operate in full duplex master mode
                 pub fn $spiX<F>(
                     spi: $SPIX,
-                    pins: (SCK, MISO, MOSI),
+                    pins: (SCK, MISO, MOSI, Option<NSS>),
                     mode: Mode,
                     freq: F,
                     clocks: Clocks,
-                    apb3: &mut $APBX,
+                    apb: &mut $APBX,
                 ) -> Self
                 where
                     F: Into<Hertz>,
                     SCK: SckPin<$SPIX>,
                     MISO: MisoPin<$SPIX>,
                     MOSI: MosiPin<$SPIX>,
+                    NSS: NssPin<$SPIX>,
                 {
                     // enable or reset $SPIX
-                    apb3.enr().modify(|_, w| w.$spiXen().set_bit());
-                    apb3.rstr().modify(|_, w| w.$spiXrst().set_bit());
-                    apb3.rstr().modify(|_, w| w.$spiXrst().clear_bit());
+                    apb.enr().modify(|_, w| w.$spiXen().set_bit());
+                    apb.rstr().modify(|_, w| w.$spiXrst().set_bit());
+                    apb.rstr().modify(|_, w| w.$spiXrst().clear_bit());
 
                     // FRXTH: RXNE event is generated if the FIFO level is greater than or equal to
                     //        8-bit
                     // DS: 8-bit data size
-                    // SSOE: Slave Select output disabled
+                    // SSOE: Slave Select output enabled if NSS pin is passed
                     spi.cr2
                         .write(|w| unsafe {
-                            w.frxth().set_bit().ds().bits(0b111).ssoe().clear_bit()
+                            w.frxth().set_bit().ds().bits(0b111).ssoe().bit(pins.3.is_some())
                         });
 
                     let br = Self::compute_baud_rate(clocks.$pclkX(), freq.into());
@@ -105,7 +116,7 @@ macro_rules! hal {
                     // BR: 1 MHz
                     // SPE: SPI disabled
                     // LSBFIRST: MSB first
-                    // SSM: enable software slave management (NSS pin free for other uses)
+                    // SSM: enable hardware slave management if NSS pin is passed
                     // SSI: set nss high = master mode
                     // CRCEN: hardware CRC calculation disabled
                     // BIDIMODE: 2 line unidirectional (full duplex)
@@ -125,12 +136,19 @@ macro_rules! hal {
                             .ssi()
                             .set_bit()
                             .ssm()
-                            .set_bit()
+                            .bit(pins.3.is_none())
                             .crcen()
                             .clear_bit()
                             .bidimode()
                             .clear_bit()
                     });
+
+                    // spi.cr2.write(|w|
+                        // w.ssoe()
+                        // .bit(pins.3.is_some())
+                        // .nssp()
+                        // .bit(pins.3.is_some())
+                    // );
 
                     Spi { spi, pins }
                 }
@@ -161,7 +179,7 @@ macro_rules! hal {
                 }
 
                 /// Releases the SPI peripheral and associated pins
-                pub fn free(self) -> ($SPIX, (SCK, MISO, MOSI)) {
+                pub fn free(self) -> ($SPIX, (SCK, MISO, MOSI, Option<NSS>)) {
                     (self.spi, self.pins)
                 }
             }
@@ -215,28 +233,53 @@ macro_rules! hal {
     }
 }
 
-//TODO: Confirm that SUBGHZSPI is actually SPI3
+// SPI1
+use crate::pac::SPI1;
+
+hal! {
+    SPI1: (spi1, APB2, spi1en, spi1rst, pclk1),
+}
+
+pins!(SPI1, AF5,
+    SCK: [PA1, PA5, PB3],
+    MISO: [PA6, PB4],
+    MOSI: [PA7, PA12, PB5],
+    NSS: [PA4, PA15, PB2],
+);
+
+// SPI2S2
+use crate::pac::SPI2 as SPI2S2;
+
+hal! {
+    SPI2S2: (spi2s2, APB1_1, spi2s2en, spi2s2rst, pclk1),
+}
+
+pins!(SPI2S2, AF5,
+    SCK: [PA8, PA9, PB10, PB13],
+    MISO: [PA11, PB14],
+    MOSI: [PA10, PB15],
+    NSS: [PB9, PB12],
+);
+
+pins!(SPI2S2, AF3,
+    SCK: [],
+    MISO: [PA5],
+    MOSI: [],
+    NSS: [PA9],
+);
+
+// SUBGHZSPI
 use crate::pac::SPI3 as SUBGHZSPI;
 
 hal! {
     SUBGHZSPI: (subghzspi, APB3, subghzspien, subghzspirst, pclk1),
 }
 
-/*
-DEBUG_SUBGHZSPI_NSSOUT -> PA4
-DEBUG_SUBGHZSPI_SCKOUT -> PA5
-DEBUG_SUBGHZSPI_MISOOUT -> PA6
-DEBUG_SUBGHZSPI_MOSIOUT -> PA7
- */
-
-pins!(SUBGHZSPI, AF13,
-      SCK: [PA5],
-      MISO: [PA6],
-      MOSI: [PA7],
-      NSSOUT: [PA4]);
-
-/*
-The sub-GHz radio SPI clock is derived from the PCLK3 clock. The SUBGHZSPI_SCK
-frequency is obtained by PCLK3 divided by two. The SUBGHZSPI_SCK clock maximum
-speed must not exceed 16 MHz.
-*/
+pins!(
+    SUBGHZSPI,
+    AF13,
+    SCK: [PA5],
+    MISO: [PA6],
+    MOSI: [PA7],
+    NSS: [PA4]
+);
